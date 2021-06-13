@@ -2,18 +2,18 @@
 Optimize energy usage produced by a rooftop PV (photo voltaic) system
 
 ## Introduction
-This project aims at making best use of PV rooftop installations. Current implemented functionality includes:
+This project aims at making best use of PV rooftop installations. This is done by implementing a controller which on a regular basis (eg. every minute) controls power distribution.
+
+Current implemented functionality includes:
 * PV excess charging with [Hardy Barth](https://www.echarge.de/de/home) wallbox
 * smart home battery charging with excess energy during PV peak production, avoiding grid feed-in limits of network provider. This is implemented for [Kostal Plenticore](https://www.kostal-solar-electric.com/en-gb/products/hybrid-inverter/plenticore-plus) inverters.
 * control the above based on PV output forecasts, as generated with the sister project [PVForecast](https://github.com/StefaE/PVForecast)
 
-The controller algorithm can be simulated based on historic PV data, as stored by data loggers as eg. [Solaranzeige](https://solaranzeige.de/phpBB3/solaranzeige.php). This allows to understand, debug and optimize control algorithms. Once the one is happy with the algorithm, it can obviously applied to the supported hardware. 
+The controller algorithm can be simulated based on historic PV data, as stored by data loggers such as eg. [Solaranzeige](https://solaranzeige.de/phpBB3/solaranzeige.php). This allows to understand, debug and optimize control algorithms. Once one is happy with the algorithm, it can obviously be applied to the supported hardware. In that usage scenario, the controller is typically called from a crontab entry on a Raspberry Pi.
 
-The software is structured such that different hardware components can easily be added. However, at this moment, the above mentioned wallbox and (single) inverter are the only ones supported.
+It is very likely that a user of this project wants to do adaptions and modifications according to his needs, either to the algorithms or supported hardware. Hence, the documentation focuses on the software structure more than trying to be a simple users guide. The software is structured such that different hardware components can easily be added. However, at this moment, the above mentioned wallbox and (single) inverter are the only ones supported. Python knowledge will be required.
 
-It is very likely that a user of this project wants to do adaptions and modifications according to his needs, either to the algorithms or supported hardware. Hence, the documentation focuses on the software structure more than trying to be a simple users guide. Python knowledge will be needed.
-
-This file mainly focuses on a functional overview whereas some background to the software structure is given [here](https://github.com/StefaE/PVOptimize#readme)
+This page mainly focuses on a functional overview whereas some background to the software structure is given [here](https://github.com/StefaE/PVOptimize#readme)
 
 **Note: all time stamps used in this project are UTC**
 
