@@ -1,5 +1,5 @@
 # PVOptimize
-Optimize energy usage created by a PV (photo voltaic) rooftop system
+Optimize energy usage produced by a rooftop PV (photo voltaic) system
 
 ## Introduction
 This project aims at making best use of PV rooftop installations. Current implemented functionality includes:
