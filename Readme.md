@@ -1,4 +1,6 @@
 # PVOptimize
+Optimize energy usage produced by a rooftop PV (photo voltaic) system
+
 ## Introduction
 This project aims at making best use of PV rooftop installations. Current implemented functionality includes:
 * PV excess charging with [Hardy Barth](https://www.echarge.de/de/home) wallbox
