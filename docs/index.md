@@ -19,18 +19,17 @@ Improvements are welcome - please use *Issues* and *Discussions* in Git.
 
 ------------
 ## Table of Content
-- [PVOptimize](#pvoptimize)
-  - [Introduction](#introduction)
-  - [Table of Content](#table-of-content)
-  - [Examples of what the controller can do](#examples-of-what-the-controller-can-do)
-    - [EV charging example](#ev-charging-example)
-  - [What does the simulator do?](#what-does-the-simulator-do)
-    - [Overview](#overview)
-    - [A closer look at simulator output](#a-closer-look-at-simulator-output)
-    - [Battery charging forecast on a winter day](#battery-charging-forecast-on-a-winter-day)
-    - [Some more notes](#some-more-notes)
-  - [Disclaimer and License](#disclaimer-and-license)
-  - [License](#license)
+- [Introduction](#introduction)
+- [Table of Content](#table-of-content)
+- [Examples of what the controller can do](#examples-of-what-the-controller-can-do)
+  - [EV charging example](#ev-charging-example)
+- [What does the simulator do?](#what-does-the-simulator-do)
+  - [Overview](#overview)
+  - [A closer look at simulator output](#a-closer-look-at-simulator-output)
+  - [Battery charging forecast on a winter day](#battery-charging-forecast-on-a-winter-day)
+  - [Some more notes](#some-more-notes)
+- [Disclaimer and License](#disclaimer-and-license)
+- [License](#license)
 
 <small><i><a href='http://ecotrust-canada.github.io/markdown-toc/'>Table of contents generated with markdown-toc</a></i></small>
 
