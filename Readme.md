@@ -11,7 +11,7 @@ The software is structured such that different hardware components can easily be
 
 It is very likely that a user of this project wants to do adaptions and modifications according to his needs, either to the algorithms or supported hardware. Hence, the documentation focuses on the software structure more than trying to be a simple users guide. Python knowledge will be needed.
 
-This file mainly focuses on the software structure, whereas a functional overview is given [here](docs/index.md)
+This file mainly focuses on the software structure, whereas a functional overview is given [here](https://stefae.github.io/PVOptimize/)
 
 **Note: all time stamps used in this project are UTC**
 
