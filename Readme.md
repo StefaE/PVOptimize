@@ -7,7 +7,7 @@ This project aims at making best use of PV rooftop installations. This is done b
 Current implemented functionality includes:
 * PV excess charging with [Hardy Barth](https://www.echarge.de/de/home) wallbox
 * smart home battery charging with excess energy during PV peak production, avoiding grid feed-in limits of network provider. This is implemented for [Kostal Plenticore](https://www.kostal-solar-electric.com/en-gb/products/hybrid-inverter/plenticore-plus) inverters.
-* control the above based on PV output forecasts, as generated with the sister project [PVForecast](https://github.com/StefaE/PVForecast)
+* control the above based on PV output forecasts, as generated with the sister project [PVForecast](https://stefae.github.io/PVForecast/)
 
 The controller algorithm can be simulated based on historic PV data, as stored by data loggers such as eg. [Solaranzeige](https://solaranzeige.de/phpBB3/solaranzeige.php). This allows to understand, debug and optimize control algorithms. Once one is happy with the algorithm, it can obviously be applied to the supported hardware. In that usage scenario, the controller is typically called from a crontab entry on a Raspberry Pi.
 
