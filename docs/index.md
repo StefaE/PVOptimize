@@ -25,6 +25,7 @@ Improvements are welcome - please use *Issues* and *Discussions* in Git.
 - [Table of Content](#table-of-content)
 - [Examples of what the controller can do](#examples-of-what-the-controller-can-do)
   - [EV charging example](#ev-charging-example)
+  - [Home battery chargin example](#home-battery-charging-example)
 - [What does the simulator do?](#what-does-the-simulator-do)
   - [Overview](#overview)
   - [A closer look at simulator output](#a-closer-look-at-simulator-output)
@@ -50,6 +51,8 @@ The following examples are based on the current implementation status, which is 
 | c | Once car charging is completed, home battery is no longer charged unless ... |
 | d | ... there is PV excess power (here: >6.8kW) which cannot be fed to the grid due to network provider limitations |
 | e | after a PV clear-sky model predicts that it is no longer possible to have PV excess power for the day (here ~15:13), home battery charging is released. |
+
+### Home battery charging example
 
 ![ForecastBasedBattery](ForecastBasedBattery.png)
 
