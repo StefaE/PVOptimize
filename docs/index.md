@@ -25,7 +25,7 @@ Improvements are welcome - please use *Issues* and *Discussions* in Git.
 - [Table of Content](#table-of-content)
 - [Examples of what the controller can do](#examples-of-what-the-controller-can-do)
   - [EV charging example](#ev-charging-example)
-  - [Home battery chargin example](#home-battery-charging-example)
+  - [Home battery charging example](#home-battery-charging-example)
 - [What does the simulator do?](#what-does-the-simulator-do)
   - [Overview](#overview)
   - [A closer look at simulator output](#a-closer-look-at-simulator-output)
