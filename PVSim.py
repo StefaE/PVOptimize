@@ -37,10 +37,12 @@ if __name__ == "__main__":
     args = cfgParser.parse_args()
     if args.cfg: cfgFile = args.cfg
     else:        cfgFile = 'config.ini'
+    cfgFile = get_script_path() + '/' + cfgFile
 
     try:
         myConfig = configparser.ConfigParser(inline_comment_prefixes='#', empty_lines_in_values=False)
-        myConfig.read(get_script_path() + '/' + cfgFile)
+        if not os.path.isfile(cfgFile): raise Exception (cfgFile + ' does not exist')
+        myConfig.read(cfgFile)
     except Exception as e:
         print('Error reading config file ' + cfgFile + ': ' + str(e))
         sys.exit(1)

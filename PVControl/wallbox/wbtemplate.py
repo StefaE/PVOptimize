@@ -45,7 +45,7 @@ class WBTemplate(ABC):
 
 class DummyWB(WBTemplate):
     def __init__(self, config = None):
-        self.status = []
+        self.status = { 'I_min': 6, 'I_max': 16 }
 
     def readWB(self):
         pass

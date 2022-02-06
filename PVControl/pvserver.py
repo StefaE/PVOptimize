@@ -90,7 +90,7 @@ class PVServer:
             h, m                = connectTime.split(':')
             self._connectTime   = time(int(h), int(m))
         else: self._connectTime = None
-        self.chargePower        = self.config['PVServer'].getint('chargePower', 16000)                       # how much we want to charge
+        self.chargePower        = self.config['PVServer'].getint('chargePower', 16000)                       # how much we want to charge (Wh)
 
         self.storePNG         = self.config['PVServer'].getboolean('storePNG', False)
 
@@ -177,10 +177,11 @@ class PVServer:
 
             pvforecast             = forecastObj.getForecast(currTime)
             ctrl                   = controlObj.runControl(pvstatus, pvforecast, carstatus)                  # ---------- run controller
+            ctrl                   = ctrl['ctrlstatus']                                                      # we don't need 'pvstatus', 'wbstatus' in simulation
             if 'ctrl_power' not in ctrl:                                                                     # controller needs some power: ctrl_power
                 raise Exception("ERROR --- controller " + controlObj.Name + " does not appear to control any power")
             if ctrl['ctrl_power'] < 0:
-                raise Exception("ERROR --- controller " + controlObj.Name + " can only consume, not produce power; " + self.currTime)
+                raise Exception("ERROR --- controller " + controlObj.Name + " can only consume, not produce power; " + str(self.currTime))
 
             if 'dc_power'         not in ctrl: ctrl['dc_power']         = pvstatus.dc_power                  # a controller might potentially re-calculate these elements
             if 'home_consumption' not in ctrl: ctrl['home_consumption'] = pvstatus.home_consumption - prevCtrlPower
@@ -217,7 +218,7 @@ class PVServer:
                 ctrl['bat_power']  = bat_power                    
 
             else:                                                                                            # PV provides insufficient power
-                if ctrl['soc'] > ctrl['min_soc']:                                                            # battery can serve excess power needed  ---- add: only if battery discharging enabled
+                if ctrl['soc'] > ctrl['min_soc'] and not ctrl['inhibitDischarge']:                           # battery can serve excess power needed  ---- add: only if battery discharging enabled
                     ctrl['bat_power'] = -(ctrl['ctrl_power'] + ctrl['home_consumption'] - ctrl['dc_power'])  # (discharge: <0)
                     if (abs(ctrl['bat_power']) > self.maxBatDischarge):                                      # consumption exceeding maximum battery discharge power
                         ctrl['grid_power'] = abs(ctrl['bat_power']) - self.maxBatDischarge                   # (consume: >0)
@@ -262,7 +263,7 @@ class PVServer:
                 create a simulation result with one row per simulated day.
         """
 
-        maxY = self.config['PVServer'].get('maxY', 10000) * 1.05
+        maxY = self.config['PVServer'].getfloat('maxY', 10000) * 1.05
         if (hasCtrl):
             fig, axes = plt.subplots(2, 2, sharex=True, sharey=False, figsize=(20, 11))
         else:
@@ -308,7 +309,7 @@ class PVServer:
             axes[1][1].legend(loc='best')
         
             summary      = self.ctrlData.sum(axis=0)/60
-            summary      = summary.drop(labels = ['soc', 'max_soc', 'min_soc', 'bat_forecast', 'fastcharge'])
+            summary      = summary.drop(labels = ['calcSOC', 'soc', 'max_soc', 'min_soc', 'need', 'have', 'bat_forecast', 'I_charge', 'batMinSoc', 'chargeNow', 'fastcharge', 'inhibitDischarge'])
             summary.name = self.day
         else:
             summary = None

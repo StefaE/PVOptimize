@@ -25,6 +25,7 @@ import os
 import sys
 import argparse
 import time
+import json
 from datetime import datetime, timezone
 
 from PVControl.pvcontrol import PVControl
@@ -38,10 +39,22 @@ if __name__ == "__main__":
     args = cfgParser.parse_args()
     if args.cfg: cfgFile = args.cfg
     else:        cfgFile = 'config.ini'
+    cfgFile = get_script_path() + '/' + cfgFile
 
     try:
         myConfig = configparser.ConfigParser(inline_comment_prefixes='#', empty_lines_in_values=False)
-        myConfig.read(get_script_path() + '/' + cfgFile)
+        if not os.path.isfile(cfgFile): raise Exception (cfgFile + ' does not exist')
+        myConfig.read(cfgFile)
+        path = None
+        if myConfig['PVControl'].getboolean('enableGUI', False):
+            I_max   = myConfig['PVControl'].getfloat('I_max', None) 
+            path    = myConfig['PVControl'].get('guiPath', '~/.node-red/projects/PVControl')
+            path    = os.path.expanduser(path)
+            cfgFile = path + '/gui_config.ini'
+            if not os.path.isfile(cfgFile): raise Exception (cfgFile + ' does not exist')
+            myConfig.read(cfgFile)
+            if I_max == 0:                                                               # preserve I_max if it was zero. This disables WB controll
+                myConfig.set('PVControl', 'I_max', '0') 
     except Exception as e:
         print('Error reading config file ' + cfgFile + ': ' + str(e))
         sys.exit(1)
@@ -50,5 +63,9 @@ if __name__ == "__main__":
     print("-- " + str(datetime.now(timezone.utc)))
     myPVControl = PVControl(myConfig)
     time.sleep(runDelay)
-    myPVControl.runControl()
+    sysstatus   = myPVControl.runControl()
+    if path is not None:                                                                 # write out GUI control file
+        json_file = open(path + '/pvstatus.json', 'w')
+        json.dump(sysstatus, json_file, indent=4)
+        json_file.close()
     del myPVControl

@@ -105,14 +105,14 @@ class Kostal (PVMonitorTemplate):
             e2, authtag  = e2.encrypt_and_digest(token.encode('utf-8'))
             
             step3 = { "transactionId" : transID,
-                    "iv"            : base64.b64encode(t).decode('utf-8'),
-                    "tag"           : base64.b64encode(authtag).decode("utf-8"),
-                    "payload"       : base64.b64encode(e2).decode('utf-8') }
+                      "iv"            : base64.b64encode(t).decode('utf-8'),
+                      "tag"           : base64.b64encode(authtag).decode("utf-8"),
+                      "payload"       : base64.b64encode(e2).decode('utf-8') }
             
             response = self._postData("/auth/create_session", step3)
             self.headers['authorization'] = "Session " + response['sessionId']
         except Exception as e:
-            print ("Kostal._LogMeIn: ERROR --- unable to login" + str(e))
+            print ("Kostal._LogMeIn: ERROR --- unable to login: " + str(e))
             sys.exit(1)
         return()
 
@@ -121,7 +121,7 @@ class Kostal (PVMonitorTemplate):
             self._postData("/auth/logout")
             self.headers.pop('authorization', None)
         except Exception as e:
-            print ("Kostal._LogMeOut: ERROR --- unable to logout" + str(e))
+            print ("Kostal._LogMeOut: ERROR --- unable to logout: " + str(e))
             sys.exit(1)
 
     def _getData(self, endpoint):
@@ -130,7 +130,7 @@ class Kostal (PVMonitorTemplate):
             e = e.replace(',', '%2C')
             r = requests.get(url = self._base_url + e, headers = self.headers)
             if r.reason != 'OK': 
-                raise Exception("ERROR --- request to endpoint=" + endpoint + " --- Reason: " + r.reason)
+                raise Exception("request to endpoint=" + endpoint + " --- Reason: " + r.reason)
             return(r.json())
         except Exception as e:
             print("Kostal._getData: " + str(e))
@@ -142,7 +142,7 @@ class Kostal (PVMonitorTemplate):
             if isPut: r = requests.put (url = self._base_url + e, json = data, headers = self.headers)
             else:     r = requests.post(url = self._base_url + e, json = data, headers = self.headers)
             if r.reason != 'OK':
-                raise Exception("ERROR --- request to endpoint=" + endpoint + " --- Reason: " + r.reason)
+                raise Exception("request to endpoint=" + endpoint + "; data=" + str(data) + " --- Reason: " + r.reason)
             return(r.json())
         except Exception as e:
             print("ERROR -- Kostal._postData: " + str(e))
@@ -183,19 +183,22 @@ class Kostal (PVMonitorTemplate):
         data                       = self._getData('/processdata/devices:local:battery/P,SoC,LimitEvuAbs')[0]['processdata']
         status['bat_power']        = [elem['value'] for elem in data if elem['id'] == 'P'][0]
         status['soc']              = [elem['value'] for elem in data if elem['id'] == 'SoC'][0]/100
-        data                       = self._getData('/settings/devices:local/Battery:ExternControl:MaxChargePowerAbs,Battery:ExternControl:MaxSocRel,Battery:SmartBatteryControl:Enable')
+        data                       = self._getData('/settings/devices:local/Battery:ExternControl:MaxChargePowerAbs,Battery:ExternControl:MaxSocRel,Battery:SmartBatteryControl:Enable,Battery:MinSoc')
         status['max_bat_charge']   = float([elem['value'] for elem in data if elem['id'] == 'Battery:ExternControl:MaxChargePowerAbs'][0])      # strangely, returns string
         status['max_soc']          = float([elem['value'] for elem in data if elem['id'] == 'Battery:ExternControl:MaxSocRel'][0])/100          # strangely, returns string
         status['smart_bat_ctrl']   = int([elem['value'] for elem in data if elem['id'] == 'Battery:SmartBatteryControl:Enable'][0])             # strangely, returns string
+        status['minSoc']           = int([elem['value'] for elem in data if elem['id'] == 'Battery:MinSoc'][0])/100                             # strangely, returns string
 
         status                     = pd.Series(status, name = pd.Timestamp.utcnow())
         self.status                = status
         return(status)
 
-    def setBatCharge(self, fastcharge, feedinLimit, maxChargeLim, maxSoc = 1):
+    def setBatCharge(self, fastcharge, inhibitDischarge, feedinLimit, maxChargeLim, maxSoc = 1, minSoc = 0.05):
         try:
             max_charge = None
             if self.status is not None:
+                if self.status['minSoc'] != minSoc:
+                    self._setSetting("Battery:MinSoc", int(minSoc*100))                  # set minSOC (only if changed) - must be int
                 if self.status['dc_power'] > 50:                                         # only set battery charge strategy if we have any dc_power
                     if fastcharge:
                         if self.status['smart_bat_ctrl']:
@@ -217,6 +220,8 @@ class Kostal (PVMonitorTemplate):
                     self._setSetting("Battery:ExternControl:MaxSocRel", maxSoc*100)
                     if max_charge is None and self.status['max_bat_charge'] < maxChargeLim * 0.9:
                         self._setSetting("Battery:ExternControl:MaxChargePowerAbs", maxChargeLim*1.05)
+                if inhibitDischarge:
+                    self._setSetting("Battery:ExternControl:MaxDischargePowerAbs", 0)
             else:
                 raise Exception ("ERROR - Kostal status not initialized")
         except Exception as e:

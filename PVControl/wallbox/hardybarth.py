@@ -36,8 +36,8 @@ class HardyBarth(WBTemplate):
         self.id           = self.config['HardyBarth'].get('id', 1)
         self.verbose      = self.config['HardyBarth'].getboolean('verbose', False)
         self.inhibitWrite = self.config['HardyBarth'].getboolean('inhibitWrite', False)
-        host           = self.config['HardyBarth'].get('host')                           # wallbox address
-        self.url       = 'http://' + host + '/api/v1/'
+        host              = self.config['HardyBarth'].get('host')                        # wallbox address
+        self.url          = 'http://' + host + '/api/v1/'
 
     def readWB(self, charge_completed = False):
         """
@@ -98,14 +98,14 @@ class HardyBarth(WBTemplate):
             else:
                 if self.status['modeid'] != 3:                                           # manual
                     self._request(True, f'pvmode', { 'pvmode': 'manual' })
+                if self.status['stateid'] != 5 and self.status['stateid'] != 4:          # 5: charging / 4: enabled, waiting
+                    self._request(True, f'chargecontrols/{id}/start')
                 if self.status['manualmodeamp'] != I_new:
                     self._request(True, f'pvmode/manual/ampere', { 'manualmodeamp': I_new })
-                if self.status['stateid'] != 5 and self.status['stateid'] != 4:          # charging / enabled, waiting
-                    self._request(True, f'chargecontrols/{id}/start')
         else:
             if self.status['manualmodeamp'] > self.status['I_min']:
                 self._request(True, f'pvmode/manual/ampere', { 'manualmodeamp': self.status['I_min'] })
-            if self.status['stateid'] != 17 and self.status['stateid'] != 4:             # disabled / enabled, waiting
+            if self.status['stateid'] != 17 and self.status['stateid'] != 4:             # 17: disabled / 4: enabled, waiting
                 self._request(True, f'chargecontrols/{id}/stop')
         return()
 

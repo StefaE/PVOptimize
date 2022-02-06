@@ -9,6 +9,8 @@ Current implemented functionality includes:
 * smart home battery charging with excess energy during PV peak production, avoiding grid feed-in limits of network provider. This is implemented for [Kostal Plenticore](https://www.kostal-solar-electric.com/en-gb/products/hybrid-inverter/plenticore-plus) inverters.
 * control the above based on PV output forecasts, as generated with the sister project [PVForecast](https://stefae.github.io/PVForecast/)
 
+The behavior of the controller is configured in a `config.ini` file, or can be controled from a GUI dashboard of the sister project [PVControl](https://github.com/StefaE/PVControl).
+
 The controller algorithm can be simulated based on historic PV data, as stored by data loggers such as eg. [Solaranzeige](https://solaranzeige.de/phpBB3/solaranzeige.php). This allows to understand, debug and optimize control algorithms. Once one is happy with the algorithm, it can obviously be applied to the supported hardware. In that usage scenario, the controller is typically called from a crontab entry on a Raspberry Pi.
 
 It is very likely that a user of this project wants to do adaptions and modifications according to his needs, either to the algorithms or supported hardware. Hence, the documentation focuses on the software structure more than trying to be a simple users guide. The software is structured such that different hardware components can easily be added. At this moment, the above mentioned wallbox and (single) inverter are the only ones supported. Python knowledge will be required for adaptions.
@@ -18,6 +20,7 @@ This file mainly focuses on the software structure, whereas a functional overvie
 **Note: all time stamps used in this project are UTC**
 
 Improvements are welcome - please use *Issues* and *Discussions* in Git.
+
 -------------
 ## Table of Content
   * [Introduction](#introduction)
@@ -34,6 +37,7 @@ Improvements are welcome - please use *Issues* and *Discussions* in Git.
   * [Influx database](#influx-database)
   * [Installation](#installation)
   * [To Do](#to-do)
+  * [Version History](#version-history)
   * [Acknowlegements](#acknowlegements)
   * [Disclaimer](#disclaimer)
   * [License](#license)
@@ -165,6 +169,7 @@ They are called from the factories `PVMonitorFactory` and `WallBoxFactory` respe
 ## Influx database
 
 In active mode, an Influx database is used to log performance of the controller. Three `measurements` are created:
+
 | Measurement | Purpose | Documentation |
 |-------------|---------|---------------| 
 | `ctrlstatus` | Status of controller - all fields are calculated in class `PVControl` | `PVControl._logInflux()` |
@@ -185,12 +190,16 @@ Note that the project assumes that UTC midnight is in the dark hours of the day 
 means that the project might not work immediatly as expected in the Americas or Asia.
 
 ## To Do
-* currently, only excess car charging is supported - this is obviously insufficient when overnight charging is required, or in winter. Adequate control needs be provided:
-  + if I_gridMax > 0, discharging battery must be limited to I_bat (currently, with I_gridMax > 0, battery is discharged until minSOC)
-  + charging is currently terminated if remaining PV power no longer can charge battery to maxSOC, which doesn't make sense in winter
-  + ...
+* it maybe desireable to have the option to charge EV from battery (example: evening charging in summer, when it is known that battery will not be fully used for night consumption)
+* day-ahead planning of `minSOC` and `maxSOC`, based on [PVForecast](https://stefae.github.io/PVForecast/#forcast-horizon) data
 * `ZOE mode`: At low charge currents, _Renault Zoe_ has large reactive power (cos-phi < 0.5). `I_min` (and possibly `I_max`) should then automatically be increased
-* GUI for easy control
+
+## Version History
+
+| Version |Date | Comment |
+|---------|-----|---------|
+| 1.0     | June 2021 | Initial release |
+| 2.0     | January 2022 | Support for winter charging (`PVControl.I_gridMax`), communication with GUI (see project [PVControl](https://github.com/StefaE/PVControl)) | 
 
 ## Acknowlegements
 Login procedure Kostal._LogMeIn() is derieved from [kilianknoll](https://github.com/kilianknoll/kostal-RESTAPI)
