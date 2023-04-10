@@ -1,5 +1,5 @@
 '''
-Copyright (C) 2021    Stefan Eichenberger   se_misc ... hotmail.com
+Copyright (C) 2022    Stefan Eichenberger   se_misc ... hotmail.com
 
 This file is part of the PVOptimize project: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -15,7 +15,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 '''
 
-from datetime import datetime, timezone, date, time, timedelta
+from datetime import datetime, time, timedelta
 import pytz
 import pandas as pd
 import math
@@ -59,20 +59,21 @@ class PVControl():
         self.batMinSOC        = self.config['PVStorage'].getfloat('minSOC', 0.05)        # minimum SOC supported by battery
         if self.minSOC < self.batMinSOC: self.minSOC = self.batMinSOC
         self.maxSOC           = self.config['PVControl'].getfloat('maxSOC', 1)           # maximum SOC we want to tolerate
-        self.minSOCCharge     = self.config['PVControl'].getfloat('minSOCCharge', self.minSOC)   # minmum SOC before PV charge starts
+        self.minSOCCharge     = self.config['PVControl'].getfloat('minSOCCharge', self.minSOC)   # minimum SOC before PV charge starts
         self.maxSOCCharge     = self.config['PVControl'].getfloat('maxSOCCharge', self.maxSOC)   # maximum SOC during PV charing
 
         self.chargeNow        = self.config['PVControl'].getboolean('chargeNow', True)   # start charging 'now' if possible
         self.chargeStart      = self.config['PVControl'].getint('chargeStart', 0)        # Epoch (UTC) after which to start charging if possible (nowSwitch = False)
+        self.allow_Bat2EV     = self.config['PVControl'].getboolean('allow_Bat2EV', False)
 
         self.InverterEff      = 0.97
         self.batCapacity      = self.config['PVStorage'].getint('batCapacity')           # battery capacity [Wh]
         self.maxBatDischarge  = self.config['PVStorage'].getint('maxBatDischarge')       # maximum battery (dis-)charge power [W]
         self.maxBatCharge     = self.config['PVStorage'].getint('maxBatCharge', self.maxBatDischarge/self.InverterEff)
 
-        self.coeff_A          = [0.5, 1.0]                                               # coefficients for battery power allowence model
-        self.coeff_B          = [0.2, 0.7]
-        self.coeff_C          = [1.2,   2]                                               # coefficients for battery charge model
+        self.coeff_A          = [0.5,  1.0]                                              # coefficients for battery power allowance model
+        self.coeff_B          = [0.2,  0.7]
+        self.coeff_C          = [1.2,  2.0]                                              # coefficients for battery charge model
 
         self.pvstatus         = None                                                     # current PV status
         self.pvforecast       = None
@@ -83,6 +84,7 @@ class PVControl():
         self.wallboxProvider  = self.config['PVControl'].get('wallbox', 'HardyBarth')    # which class provides wallbox?
 
         self.I_charge         = None
+        self.I_bat            = None
         self.inhibitDischarge = False                                                    # don't allow battery discharge
         self.ctrlstatus       = {}
         self.sysstatus        = {}
@@ -90,6 +92,10 @@ class PVControl():
         try:
             file             = open('./pvcontrol.pickle', 'rb')
             self.persist     = pickle.load(file)
+            if not all(key in self.persist.keys() 
+                   for key in ('saved', 'ctrl_power', 'overflow_start', 'overflow_end', 'endcharge', 'charge_completed', 'calcSOC')):
+                self._initPersist()
+            pass
         except:
             self._initPersist()                                                          # file doesn't exist
 
@@ -115,7 +121,7 @@ class PVControl():
         Returns
         -------
             self.sysstatus : Dictionary with keys:
-                ctrlstatus : Caller can expect to find at least the following keys:
+                ctrlstatus : Caller (eg. PVServer)can expect to find at least the following keys:
                     fastcharge : boolean
                         fast-charge home battery, or use smart-charge capability of inverter
                     ctrl_power : float
@@ -125,8 +131,20 @@ class PVControl():
                     bat_forecast : float
                         have/need, where 'have' is expected remaining PV power which can be used for battery charging
                         and 'need' is power needed to charge battery to 'max_soc' [W]
+                    inhibitDischarge : boolean
+                        inhibit battery discharging
+                    -- The following properties are used by PVControl GUI project
                     I_charge : float
-                        EV charge current requested from wallbox
+                        EV charge current requested from wallbox [A] (redundant to ctrl_power)
+                    batMinSoc : float, range 0 .. 1
+                        battery minimal SOC (defined by battery) for healthy operation
+                    chargeNow : boolean
+                        start charging now (if all other condtions regarding power are met)? This potentially changes
+                        from false to true if chargeStart time is reached.
+                    overflow_start : integer
+                        seconds after midnight UTC where it is possible (based on clearsky PV forecast) that feed-in
+                        overflow is reached
+                    Additional keys are used by self._logInflux()
                 pvstatus : status as returned from self.monitorProvider
                 wbstatus : status as returned from self.wallboxProvider - used by GUI to display status (wallbox specific)
                 GUI_control : configuration information for GUI
@@ -157,7 +175,7 @@ class PVControl():
                 self.pvforecast     = forecastObj.getForecast(self.pvstatus.name)
             active                  = True                                               # we are in active mode, actually controlling wallbox
 
-        else:                     # ----------------------------------------------------- running in simulation mode
+        else:                       # ----------------------------------------------------- running in simulation mode
             self.pvstatus           = _pvstatus
             self.wallbox            = wallbox.getWallBox('dummy', self.config)
             self.wallbox.status.update(_carstatus)
@@ -182,12 +200,13 @@ class PVControl():
         self.ctrlstatus['calcSOC']  = self.persist['calcSOC']
 
         self._getClearsky()                                                              # determine clearsky parameters
-        if self.chargeStart < datetime.now().timestamp()*1000: 
+        if self.chargeStart < datetime.timestamp(self.currTime)*1000: 
             self.chargeNow = True
         self._getI_charge(ctrl_power, req_ctrl_power_prev)                               # calculate WB charge current
         fastcharge                       = self._manageBatCharge(ctrl_power)             # calculate max. charge battery power
 
         self.ctrlstatus['I_charge']      = self.I_charge
+        self.ctrlstatus['I_bat']         = self.I_bat
         self.ctrlstatus['fastcharge']    = fastcharge
         self.persist['ctrl_power']       = self._I_to_P(self.I_charge)                   # prepare persistent data structure - will be written to file in __del__
         self.persist['charge_completed'] = self.wallbox.status['charge_completed']
@@ -200,16 +219,17 @@ class PVControl():
             if self.inverter is not None:
                 self.inverter.setBatCharge(fastcharge, self.inhibitDischarge, self.feedInLimit, self.maxBatCharge, self.maxSOC, self.minSOC)
                 del self.inverter
-        self.ctrlstatus['ctrl_power']                   = self._I_to_P(self.I_charge)
-        self.ctrlstatus['max_soc']                      = self.maxSOC
-        self.ctrlstatus['inhibitDischarge']             = self.inhibitDischarge
-        self.ctrlstatus['batMinSoc']                    = self.batMinSOC
-        if self.chargeNow: self.ctrlstatus['chargeNow'] = 1                              # GUI wants an integer
-        else:              self.ctrlstatus['chargeNow'] = 0
+        self.ctrlstatus['ctrl_power']       = self._I_to_P(self.I_charge)
+        self.ctrlstatus['max_soc']          = self.maxSOC
+        self.ctrlstatus['batMinSoc']        = self.batMinSOC
+        self.ctrlstatus['inhibitDischarge'] = self.inhibitDischarge
+        self.ctrlstatus['chargeNow']        = 1 if self.chargeNow else 0                 # GUI wants an integer
+        t                                   = self.persist['overflow_start']
+        self.ctrlstatus['overflow_start']   = (t.hour * 3600 + t.minute * 60) * 1000     # milliseconds since midnight (UTC) when overflow can start
 
-        self.sysstatus['ctrlstatus']                    = self.ctrlstatus
-        self.sysstatus['pvstatus']                      = self.pvstatus.to_dict()
-        self.sysstatus['wbstatus']                      = self.wallbox.status
+        self.sysstatus['ctrlstatus']        = self.ctrlstatus
+        self.sysstatus['pvstatus']          = self.pvstatus.to_dict()
+        self.sysstatus['wbstatus']          = self.wallbox.status
         return(self.sysstatus)
 
     def __del__ (self):
@@ -228,7 +248,8 @@ class PVControl():
         t            = datetime(1970, 1, 1, 0, 0, tzinfo=pytz.utc)
         self.persist = { 'saved'            : t,                                         # time stamp of persistent data
                          'ctrl_power'       : 0,                                         # power delivered to controller in prior step (for sim, as fall-back)
-                         'overflow_end'     : time(0, 0),                                # end of time period for potential 70% power limitation
+                         'overflow_start'   : time(0, 0),                                # start of time period for potential 70% power limitiation
+                         'overflow_end'     : time(0, 0),                                # end   of time period for potential 70% power limitation
                          'endcharge'        : { 1 : None },                              # when can we no longer reach I = 'key'?
                          'charge_completed' : 0,                                         # wallbox charging completed
                          'calcSOC'          : 0                                          # calculated SOC
@@ -240,23 +261,26 @@ class PVControl():
         """
         if self.currTime.date() > self.persist['saved'].date():                          # ... new day (just after midnight UTC - assumes midnight UTC is during local night)
             myPVSystem  = PVModel(self.config)
-            times       = pd.date_range(self.currTime, self.currTime.replace(hour=23), freq="15min")
+            times       = pd.date_range(self.currTime.replace(hour=0, minute=0, second=0), self.currTime.replace(hour=23), freq="5min")
             times_df    = pd.DataFrame(times).set_index(0)
             clearsky    = myPVSystem.runModel(times_df, 'clearsky')
             endcharge   = {}  
             for I in range(1, math.ceil(self.I_max), 1):
                 P       = self._I_to_P(I)
-                power   = clearsky.loc[clearsky['dc_clearsky'] > P/self.InverterEff]
+                power   = clearsky.loc[clearsky['ac_clearsky'] > P]
                 if not power.empty:                                                      # at what time do we have last time enough clearsky power to generate current I?
                     endcharge[I] = power.iloc[-1].name.time()
             self.persist['endcharge'] = endcharge
-            power       = clearsky.loc[clearsky['dc_clearsky'] > self.feedInLimit/self.InverterEff]
-            if power.empty:
-                overflow_end = time(0, 0)                                                # no power limit period
+            power       = clearsky.loc[clearsky['ac_clearsky'] > self.feedInLimit]       # potential overflow
+            if power.empty:                                                              # we are in winter or transition time
+                power   = clearsky.loc[clearsky['ac_clearsky'] > 0.9*self.feedInLimit]   # allow a bit of slack for overradiation days
+            if power.empty:                                                              # we are in winter
+                self.persist['overflow_start'] = time(23, 59)                                            # no power limit period
+                self.persist['overflow_end']   = time( 0,  0)
             else:
-                overflow_end = (power.iloc[-1].name + timedelta(minutes=30)).time()      # give 30min slack for over-radiation
-            self.persist['overflow_end'] = overflow_end
-            print('power_limit_ends for ' + str(self.currTime.date()) + ': ' + str(overflow_end))
+                self.persist['overflow_start'] = (power.iloc[0].name  - timedelta(minutes=30)).time()    # give 30min slack for over-radiation
+                self.persist['overflow_end']   = (power.iloc[-1].name + timedelta(minutes=30)).time()
+            print('power_limit for ' + str(self.currTime.date()) + ': ' + str(self.persist['overflow_start'])[0:5] + " .. " + str(self.persist['overflow_end'])[0:5])
         return()
 
     def _getI_charge(self, ctrl_power, req_ctrl_power_prev = None):
@@ -271,8 +295,9 @@ class PVControl():
                 requested control power in previous step; normally that should be ctrl_power, but if EV
                 is unable to consume all requested power, this maybe smaller.
         """
+        I_bat                     = 0
         if req_ctrl_power_prev is None:
-            req_ctrl_power_prev = ctrl_power
+            req_ctrl_power_prev   = ctrl_power
         if self.chargeNow and self.wallbox.status['connected']:
             I_prev                = self._P_to_I(ctrl_power)                             # what we have been charging so far
             I_prev_req            = self._P_to_I(req_ctrl_power_prev)
@@ -286,29 +311,33 @@ class PVControl():
             I_missing             = 0
             if ctrl_power > 0  and I_maxPV < self.I_min:                                 # if we can supply that much power, we are mid-way between previous and min
                 I_missing         = (I_prev + self.I_min)/2 - I_maxPV 
-            if ctrl_power == 0 and I_maxPV + self.I_gridMax >= self.I_min:               # try to harvest battery and grid
+            if ctrl_power == 0 and (I_maxPV + self.I_gridMax >= self.I_min or self.allow_Bat2EV):    # try to harvest battery and grid
                 I_missing         = self.I_min - I_maxPV                                 # ... at least this much we need find
             if I_missing > 0:
-                I_bat             = self._maxFromBat(self.coeff_A)                       # current we can supply, using Coeff_A
-                if I_missing > I_bat:                                                    # we don't want provide so much from the battery
-                    I_missing     = self.I_min - I_maxPV                                 # if at least we can get this, we can continue with charging
-                    I_bat         = self._maxFromBat(self.coeff_B)                       # max. avail current based on coeff. b1, b2 to sustain I_min
-                    if I_missing > I_bat + self.I_gridMax:                               # we can't supply from battery alone, or battery plus grid allowence
-                        I_missing = 0
-                    elif I_missing <= self.I_gridMax:                                    # if grid allowence itself is sufficient
-                        self.inhibitDischarge = True                                     # don't use battery
-                elif I_missing <= self.I_gridMax:
-                    self.inhibitDischarge = True
-                if self.inhibitDischarge and self.I_gridMax - I_maxPV > I_missing:
-                    I_missing = self.I_gridMax                                           # ok., let's use all grid power we can (but limit below to self.I_max)
-                I = math.floor(self.I_min - self.I_gridMax)                              # will not be able to charge anymore without battery
-                if I in self.persist['endcharge']:
-                    t = self.persist['endcharge'][I]
-                    if self.currTime.time() > t:
-                        I_missing = 0
-                I_charge          = I_maxPV + I_missing                                  # how much we want supply - this may include some grid power
-                if I_prev > 0 and I_charge > I_prev and not self.inhibitDischarge:       # we have something missing (not feeding from grid only), still increase I_charge?
-                    I_charge = I_prev                                                    # .. this should only be due to rounding errors
+                if self.allow_Bat2EV and self.pvstatus.soc > self.minSOCCharge:          # allow charing EV from battery
+                    I_bat    = self._P_to_I(self.maxBatDischarge)
+                    I_charge = self.I_gridMax + I_bat + I_maxPV
+                else:
+                    I_bat             = self._maxFromBat(self.coeff_A)                   # current we can supply, using Coeff_A, to supply >I_min
+                    if I_missing > I_bat:                                                # we don't want provide so much from the battery
+                        I_missing     = self.I_min - I_maxPV                             # if at least we can get this, we can continue with charging
+                        I_bat         = self._maxFromBat(self.coeff_B)                   # max. avail current based on Coeff_B to sustain I_min
+                        if I_missing > I_bat + self.I_gridMax:                           # we can't supply from battery alone, or battery plus grid allowence
+                            I_missing = 0
+                        elif I_missing <= self.I_gridMax:                                # if grid allowence itself is sufficient
+                            self.inhibitDischarge = True                                 # don't use battery
+                    elif I_missing <= self.I_gridMax:
+                        self.inhibitDischarge = True
+                    if self.inhibitDischarge and self.I_gridMax - I_maxPV > I_missing:
+                        I_missing = self.I_gridMax                                       # ok., let's use all grid power we can (but limit below to self.I_max)
+                    I = math.floor(self.I_min - self.I_gridMax)                          # will not be able to charge anymore without battery
+                    if I in self.persist['endcharge']:
+                        t = self.persist['endcharge'][I]
+                        if self.currTime.time() > t:
+                            I_missing = 0
+                    I_charge          = I_maxPV + I_missing                              # how much we want supply - this may include some grid power
+                    if I_prev > 0 and I_charge > I_prev and not self.inhibitDischarge:   # we have something missing (not feeding from grid only), still increase I_charge?
+                        I_charge = I_prev                                                # .. this should only be due to rounding errors
             else:  I_charge       = I_maxPV
             I_charge = self.wallbox.round_current(I_charge)                              # HardyBarth rounds down to full amps
 
@@ -316,11 +345,12 @@ class PVControl():
                 if I_prev < I_prev_req: I_charge = self.I_min                            # we requested more than was consumed ... 
                 else:                   I_charge = 0                                     # we are below the limit which WB can deliver for charging
             if I_charge > self.I_max: I_charge = self.I_max                              # we can't charge with more current than this
-            self.I_charge         = I_charge
+            self.I_charge          = I_charge
         else:
-            self.I_charge         =  0
-            avail_P               = -1
+            self.I_charge          =  0
+            avail_P                = -1
         self.ctrlstatus['avail_P'] = avail_P
+        self.I_bat                 = I_bat
         return()
 
     def _manageBatCharge(self, ctrl_power):
@@ -359,24 +389,29 @@ class PVControl():
 
             if self.wallbox.status['connected'] and self.wallbox.status['charge_completed']:
                 self.inhibitDischarge = False
+                self.minSOCCharge     = self.minSOC                                      # don't fastcharge to minSOCCharge anymore; wait for 'need' big enough or 'overflow_end'
 
-            if self.pvstatus.dc_power > self.feedInLimit/50:                             # we have some PV power ...
-                if need > have/self.coeff_C[0] and self.inhibitDischarge == False:       # oops - we should start focusing on battery now (unless grid charging is on)
-                    fastcharge            = True
-                    self.I_charge         = self.I_charge - self._P_to_I(self.maxBatCharge)                   # stop charging car
-                    if self.I_charge < self.I_min: self.I_charge = 0
-                elif self.minSOCCharge > self.pvstatus.soc:                                                   # enforce fastcharge to minSOCCharge
-                    fastcharge            = True
-                    self.I_charge         = 0                                                                 # focus on bringing battery to minSOCCharge
-                elif self.wallbox.status['connected'] and not self.wallbox.status['charge_completed']:        # planning to / ongoing car charge - all surplus goes to battery
-                    fastcharge            = True
-                    if need < have/self.coeff_C[1] and self.currTime.time() < self.persist['overflow_end']:   # don't charge full yet, whilst charging car
-                        self.maxSOC       = self.maxSOCCharge
-                elif need > have/self.coeff_C[1] and self.currTime.time() < self.persist['overflow_end']:     # still early, but not that much more energy left ...
-                    fastcharge            = True
-                elif self.currTime.time() > self.persist['overflow_end']:                # afternoon - charge battery now without further condition
-                    fastcharge            = True
-            else:   fastcharge            = True                                         # ... if we are here, we probably won't load battery anyway, but we may at least try ...
+            if not (self.allow_Bat2EV and self.wallbox.status['connected'] and self.I_charge > 0 and not self.wallbox.status['charge_completed']):
+                                                                                         # if we allow_Bat2EV and are connected, can supply current and are not completed, we don't allow fastcharge
+                if self.pvstatus.dc_power > self.feedInLimit/50:                         # we have some PV power ...
+                    if need > have/self.coeff_C[0] and self.inhibitDischarge == False:   # oops - we should start focusing on battery now (unless grid charging is on)
+                        fastcharge            = True
+                        self.I_charge         = self.I_charge - self._P_to_I(self.maxBatCharge)                   # stop charging car
+                        if self.I_charge < self.I_min: self.I_charge = 0
+                    elif self.minSOCCharge > self.pvstatus.soc:                                                   # enforce fastcharge to minSOCCharge
+                        fastcharge            = True
+                        self.I_charge         = 0                                                                 # focus on bringing battery to minSOCCharge
+                    elif self.wallbox.status['connected'] and not self.wallbox.status['charge_completed']:        # planning to / ongoing car charge - all surplus goes to battery
+                        if self.pvstatus.soc < self.maxSOCCharge or self.currTime.time() > self.persist['overflow_end']: 
+                            fastcharge = True
+                        if need < have/self.coeff_C[1] and self.currTime.time() < self.persist['overflow_start']: # don't charge full yet, whilst charging car
+                            self.maxSOC       = self.maxSOCCharge
+                    elif need > have/self.coeff_C[1] and self.currTime.time() < self.persist['overflow_end']:     # still early, but not that much more energy left ...
+                        fastcharge            = True
+                    elif self.currTime.time() > self.persist['overflow_end']:            # afternoon - charge battery now without further condition
+                        fastcharge            = True
+                else:   fastcharge            = True                                     # ... if we are here, we probably won't load battery anyway, but we may at least try ...
+                if self.I_charge == 0: self.I_bat = 0
         self.ctrlstatus['need']       = need
         self.ctrlstatus['have']       = have
         if need > 0: self.ctrlstatus['bat_forecast'] = have/need
@@ -407,7 +442,8 @@ class PVControl():
         b         = -a*coeff[0]
         if self.pvstatus.soc > self.minSOCCharge:
             I_bat = self.pvstatus.soc*a+b                                                # max. avail current based on coeff. a1, a2 to slowly reduce charing
-            if I_bat < 0: I_bat = 0
+            if I_bat < 0:        I_bat = 0
+            if I_bat > I_batMax: I_bat = I_batMax
         else:
             I_bat = 0    
         return(I_bat)
@@ -430,10 +466,11 @@ class PVControl():
             ctrlstatus : Controller status with fields:
                 avail_P      : current available PV excess power
                 I_charge     : current intended WB charge current (see _getI_charge())
+                I_bat        : how much current is allowed to be taken from battery to charge EV
                 have         : forecasted excess PV power for rest of day
                 need         : needed power to charge home battery to maxSOC
                 bat_forecast : have/need
-                calc_soc     : calculated home battery SOC based on battery currents and voltages
+                calcSOC      : calculated home battery SOC based on battery currents and voltages
                 fastcharge   : fast-charge (or smart-charge) home battery
         """
         
@@ -449,18 +486,18 @@ class PVControl():
                     df       = pd.DataFrame(self.wallbox.status, index = [self.currTime])
                     df.drop(['I_min', 'I_max'], axis=1, inplace=True)
                     for field in df:
-                        df.loc[:,field] = df[field].astype(float)
+                        df[field] = df[field].astype(float)
                     client.write_points(df, 'wbstatus')
 
                     df       = pd.DataFrame(self.pvstatus.to_frame().transpose())
                     df.drop(['minSoc'], axis=1, inplace=True)
                     for field in df:
-                        df.loc[:,field] = df[field].astype(float)
+                        df[field] = df[field].astype(float)
                     client.write_points(df, 'pvstatus')
 
                     df       = pd.DataFrame(self.ctrlstatus, index = [self.currTime])
                     for field in df:
-                        df.loc[:,field] = df[field].astype(float)
+                        df[field] = df[field].astype(float)
                     client.write_points(df, 'ctrlstatus')
                     pass
             except Exception as e:
@@ -478,6 +515,7 @@ class PVControl():
                       "minSOC"       : self.minSOC,
                       "minSOCCharge" : self.minSOCCharge,
                       "maxSOCCharge" : self.maxSOCCharge,
-                      "maxSOC"       : self.maxSOC
+                      "maxSOC"       : self.maxSOC,
+                      "allow_Bat2EV" : 1 if self.allow_Bat2EV else 0                     # we need an integer
                     }
         return pvcontrol 

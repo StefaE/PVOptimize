@@ -33,7 +33,7 @@ def get_script_path():
 
 if __name__ == "__main__":
     cfgParser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    cfgParser.add_argument('-c', '--cfg', help="Specify config file (default: ./solcast_light_config.ini)", metavar="FILE")
+    cfgParser.add_argument('-c', '--cfg', help="Specify config file (default: ./config.ini)", metavar="FILE")
     args = cfgParser.parse_args()
     if args.cfg: cfgFile = args.cfg
     else:        cfgFile = 'config.ini'
@@ -48,17 +48,17 @@ if __name__ == "__main__":
         sys.exit(1)
 
     myServer = PVServer(myConfig)                                                        # create PV server to emulate power distribution (bat, grid, ...)
-    runCtrl  = myConfig['PVControl'].getboolean('run', False)                            # False doesn't run controller, merely creates plot files for PV system
+    runCtrl  = myConfig['PVControl'].getint('run', 0)                                    # False doesn't run controller, merely creates plot files for PV system
     if os.path.exists('./pvcontrol.pickle'):
         os.remove('./pvcontrol.pickle')
     summary  = pd.DataFrame()
     for day in myServer.days:                                                            # iterate of startDate .. endDate as defined in config file
         myServer.getDayData(day)                                                         # get data for one day
-        if (runCtrl):
+        if (runCtrl != 0):
             myServer.runController()                                                     # simulate controller (eg. wallbox charging)
         daySummary = myServer.plot(runCtrl)                                              # plot data, summarize
         if daySummary is not None:
-            summary = summary.append(daySummary.to_frame().T)
+            summary = pd.concat([summary, daySummary.to_frame().T])
     if myConfig['PVServer'].getboolean('storePNG') and not summary.empty:
         summary.index.name = 'day'
         file = myConfig['PVServer'].get('storePath') + '/' + 'summary.csv'

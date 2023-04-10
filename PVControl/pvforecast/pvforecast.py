@@ -52,7 +52,7 @@ class PVForecast:
                     else:
                         if duration is None:
                             t_start  = datetime.strptime(row['time'], '%Y-%m-%dT%H:%M:%SZ')
-                            duration = round((t_end - t_start).total_seconds()/60)     # forecast period in minutes, rounded to minute
+                            duration = round((t_end - t_start).total_seconds()/60)       # forecast period in minutes, rounded to minute
                             duration = duration/60
                     avail      = (row['forecast'])
                     if avail < 0: avail = 0

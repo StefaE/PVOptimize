@@ -23,24 +23,26 @@ Improvements are welcome - please use *Issues* and *Discussions* in Git.
 
 -------------
 ## Table of Content
-  * [Introduction](#introduction)
-  * [Main scripts](#main-scripts)
-  * [Class Model](#class-model)
-    + [Simulator Mode](#simulator-mode)
-    + [Active Controller Mode](#active-controller-mode)
-  * [Source File Structure](#source-file-structure)
-  * [Configuration file](#configuration-file)
-  * [Hardware specific implementations](#hardware-specific-implementations)
-    + [PVMonitor](#pvmonitor)
-    + [Wallbox](#wallbox)
-    + [Extending with new hardware providers](#extending-with-new-hardware-providers)
-  * [Influx database](#influx-database)
-  * [Installation](#installation)
-  * [To Do](#to-do)
-  * [Version History](#version-history)
-  * [Acknowlegements](#acknowlegements)
-  * [Disclaimer](#disclaimer)
-  * [License](#license)
+- [PVOptimize](#pvoptimize)
+  - [Introduction](#introduction)
+  - [Table of Content](#table-of-content)
+  - [Main scripts](#main-scripts)
+  - [Class Model](#class-model)
+    - [Simulator Mode](#simulator-mode)
+    - [Active Controller Mode](#active-controller-mode)
+  - [Source File Structure](#source-file-structure)
+  - [Configuration file](#configuration-file)
+  - [Hardware specific implementations](#hardware-specific-implementations)
+    - [PVMonitor](#pvmonitor)
+    - [Wallbox](#wallbox)
+    - [Extending with new hardware providers](#extending-with-new-hardware-providers)
+  - [Influx database](#influx-database)
+  - [Installation](#installation)
+  - [To Do](#to-do)
+  - [Version History](#version-history)
+  - [Acknowlegements](#acknowlegements)
+  - [Disclaimer](#disclaimer)
+  - [License](#license)
 
 <small><i><a href='http://ecotrust-canada.github.io/markdown-toc/'>Table of contents generated with markdown-toc</a></i></small>
 
@@ -182,7 +184,7 @@ Follow installation instructions for the **full** installation of the sister pro
 * we make use of [pvlib](https://pvlib-python.readthedocs.io/en/stable/) clearsky performance modeling of the PV system
 * want to make use of PV forecast data, as is provided by that project (although another forecast source could be configured as long as its available in an Influx database)
 
-In addition, the simulator `PVServer` requires [mathplotlib](https://matplotlib.org/stable/index.html). 
+In addition, the simulator `PVServer` requires [matplotlib](https://matplotlib.org/stable/index.html). 
 
 All references to _Influx_ work only with Influx 1.x (tested: 1.8).
 
@@ -196,10 +198,17 @@ means that the project might not work immediatly as expected in the Americas or 
 
 ## Version History
 
-| Version |Date | Comment |
-|---------|-----|---------|
-| 1.0     | June 2021 | Initial release |
-| 2.0     | January 2022 | Support for winter charging (`PVControl.I_gridMax`), communication with GUI (see project [PVControl](https://github.com/StefaE/PVControl)) | 
+**v2.01**, 2023-04-11:
+* **Incompatible change**: PVLib 0.9 or higher is now required
+* **Bug fix**: under certain circumstances, home battery wouldn't get fully charged, if EV was plugged in but charging not completed.
+* new control file paramter `allow_Bat2EV`: if enabled, home battery can be used to charge EV (eg. during night, end-of-day, etc.). This is experimental.
+* other minor improvements how battery is managed in transistion period (spring, autumn)
+
+**v2.00**, January 2022
+
+* Support for winter charging (`PVControl.I_gridMax`), communication with GUI (see project [PVControl](https://github.com/StefaE/PVControl)) | 
+
+**v1.00**, June 2021: Initial release
 
 ## Acknowlegements
 Login procedure Kostal._LogMeIn() is derieved from [kilianknoll](https://github.com/kilianknoll/kostal-RESTAPI)

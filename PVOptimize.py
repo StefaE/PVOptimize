@@ -35,7 +35,7 @@ def get_script_path():
 
 if __name__ == "__main__":
     cfgParser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    cfgParser.add_argument('-c', '--cfg', help="Specify config file (default: ./solcast_light_config.ini)", metavar="FILE")
+    cfgParser.add_argument('-c', '--cfg', help="Specify config file (default: ./config.ini)", metavar="FILE")
     args = cfgParser.parse_args()
     if args.cfg: cfgFile = args.cfg
     else:        cfgFile = 'config.ini'
@@ -60,7 +60,7 @@ if __name__ == "__main__":
         sys.exit(1)
 
     runDelay    = myConfig['PVControl'].getint('run', 0)                                 # sleep to allow 'solaranzeige' to fully update Influx
-    print("-- " + str(datetime.now(timezone.utc)))
+    print("-- " + str(datetime.now(timezone.utc)) + " - UTC")
     myPVControl = PVControl(myConfig)
     time.sleep(runDelay)
     sysstatus   = myPVControl.runControl()

@@ -56,19 +56,14 @@ class PVServer:
         self.currTime           = None                                                                       # current simulation time step
         self.day                = None                                                                       # current day
 
-        startDate               = self.config['PVServer'].get('startDate')
-        endDate                 = self.config['PVServer'].get('endDate', startDate)
-        startDate               = datetime.strptime(startDate, '%Y-%m-%d')
-        endDate                 = datetime.strptime(endDate,   '%Y-%m-%d')
+        startDate               = datetime.strptime(self.config['PVServer'].get('startDate'),          '%Y-%m-%d')
+        endDate                 = datetime.strptime(self.config['PVServer'].get('endDate', startDate), '%Y-%m-%d')
         delta                   = endDate - startDate
-
-        breakTime               = self.config['PVServer'].get('breakTime', None)
-        if breakTime is not None:
-            h, m                = breakTime.split(':')
-            self._breakTime     = time(int(h), int(m))
-        else: self._breakTime   = None
-
         self.days               = [startDate + timedelta(days=x) for x in range(delta.days+1)]               # days to iterate over 
+
+        self._startTime         = self._time(self.config['PVServer'].get('startTime', None))
+        self._endTime           = self._time(self.config['PVServer'].get('endTime', None))
+        self._breakTime         = self._time(self.config['PVServer'].get('breakTime', None))
 
         self.minSOC             = self.config['PVStorage'].getfloat('minSOC', 0.05)                          # minSOC level, below which discharging is inhibited
         self.batCapacity        = self.config['PVStorage'].getint('batCapacity')                             # battery capacity (Wh)
@@ -92,7 +87,12 @@ class PVServer:
         else: self._connectTime = None
         self.chargePower        = self.config['PVServer'].getint('chargePower', 16000)                       # how much we want to charge (Wh)
 
-        self.storePNG         = self.config['PVServer'].getboolean('storePNG', False)
+    def _time(self, timeStr):
+        if timeStr is not None:
+            h, m = timeStr.split(':')[:2]
+            t    = time(int(h), int(m))
+        else: t  = None
+        return(t)
 
     def _getDaylight(self, day: datetime):
         """
@@ -129,7 +129,11 @@ class PVServer:
         """
         self.day        = day
         sunrise, sunset = self._getDaylight(day)
-        self.pvData     = self.pvmonitor.getStatus(sunrise, sunset)
+        if self._startTime is None: startTime = sunrise
+        else:                       startTime = day.strftime('%Y-%m-%dT') + self._startTime.strftime('%H:%M:00Z')
+        if self._endTime   is None: endTime   = sunset
+        else:                       endTime   = day.strftime('%Y-%m-%dT') + self._endTime.strftime('%H:%M:00Z')
+        self.pvData     = self.pvmonitor.getStatus(startTime, endTime)
  
         clearsky        = self.pvsystem.runModel(self.pvData, 'clearsky')
         self.pvData     = pd.concat([self.pvData, clearsky['dc_clearsky']], axis = 1)
@@ -139,6 +143,23 @@ class PVServer:
         Simulate the PV system and distribute power to/from battery/grid, etc. Each loop creates
         and eventually distroys an object of Class PVControl. Day summary data are accumulated in
         self.ctrlData for later evaluation in plot()
+
+        PVControl.runControl returns
+            ctrl['ctrlstatus] as a dictionary with the following elements (other elements are not used)
+                ctrl_power : float (mandatory)
+                    total provided by teh controller to wallbox [W]
+
+                fastcharge : boolean (optional, default True)
+                    fast-charge home battery, or use smart-charge capability of inverter
+                inhibitDischarge : boolean (optional, default False, useful if controller sets inverter discharge rate to zero)
+                    inhibit battery discharging
+                max_soc    : float, range 0 .. 1 (optional, default 1, useful if controller sets inverter MaxSOC)
+                    battery SOC should not exceed max_soc
+                bat_forecast : float (optional, used for result plotting only)
+                    have/need, where 'have' is expected remaining PV power which can be used for battery charging
+                    and 'need' is power needed to charge battery to 'max_soc' [W]
+
+        Other parameters required for simulation are taken from pvstatus
 
         Note that if self._breakTime is set, a location is reached where a breakpoint can be set
         for easy debugging.
@@ -166,8 +187,11 @@ class PVServer:
             if i > 0: 
                 pvstatus.soc       = ctrlResult[i-1]['soc']                                                  # SOC is not taken from database but calculated in previous step
                 pvstatus.bat_power = ctrlResult[i-1]['bat_power']
-            elif self.startSOC    != -1:                                                                     # -1 (= default): Take whatever the database tells us
-                pvstatus.soc       = self.startSOC
+            else:
+                if self.startSOC    != -1:                                                                   # -1 (= default): Take whatever the database tells us
+                    pvstatus.soc       = self.startSOC
+                else:
+                    print('start_soc (morning): ' + str(pvstatus.soc))
             currTime               = pvstatus.name
             if self._breakTime is not None and currTime.time() > self._breakTime:
                 print('Break time: ' + str(currTime))                                                        # ========== break time evaluation
@@ -187,6 +211,9 @@ class PVServer:
             if 'home_consumption' not in ctrl: ctrl['home_consumption'] = pvstatus.home_consumption - prevCtrlPower
             if 'min_soc'          not in ctrl: ctrl['min_soc']          = self.minSOC
             if 'max_soc'          not in ctrl: ctrl['max_soc']          = 1
+            if 'fastcharge'       not in ctrl: ctrl['fastcharge']       = True
+            if 'inhibitDischarge' not in ctrl: ctrl['inhibitDischarge'] = False
+            if 'bat_forecast'     not in ctrl: ctrl['bat_forecast']     = 0
             if totCtrlPower > self.chargePower:
                 carstatus['charge_completed'] = 1
                 ctrl['ctrl_power'] = 0
@@ -200,7 +227,7 @@ class PVServer:
             if (i > 0): dT         = (self.currTime - ctrlResult[i-1]['datetime']).seconds/3600              # time since last simulation interval, in hours
             ctrl['waste_power']    = pvstatus.waste_power
             
-            surpluspower = ctrl['dc_power']*e - ctrl['home_consumption'] - ctrl['ctrl_power'] + pvstatus.waste_power        # gridpower before battery charge
+            surpluspower = ctrl['dc_power']*e - ctrl['home_consumption'] - ctrl['ctrl_power'] + pvstatus.waste_power        # available surplus power before battery charge
             if surpluspower > 0:                                                                             # PV provides sufficient power
                 if ctrl['soc'] < ctrl['max_soc']:                                                            # SOC < max_soc, charge battery
                     if ctrl['fastcharge']:
@@ -210,12 +237,12 @@ class PVServer:
                     if bat_power < 0: 
                         bat_power = 0
                     elif bat_power > self.maxBatCharge: 
-                        bat_power  = self.maxBatCharge                                                       # more PV power available than battery can accept
-                    ctrl['waste_power'] = ctrl['dc_power']*e - ctrl['home_consumption'] - ctrl['ctrl_power'] - bat_power - self.feedInLimit
-                    if ctrl['waste_power'] < 0: ctrl['waste_power'] = 0
-                else: bat_power    = 0
-                ctrl['grid_power'] = -(surpluspower - bat_power)                                             # gridpower after battery charge
-                ctrl['bat_power']  = bat_power                    
+                        bat_power   = self.maxBatCharge                                                      # more PV power available than battery can accept
+                else: bat_power     = 0
+                ctrl['waste_power'] = surpluspower - bat_power - self.feedInLimit
+                if ctrl['waste_power'] < 0: ctrl['waste_power'] = 0
+                ctrl['grid_power']  = -(surpluspower - bat_power - pvstatus.waste_power)                                            # gridpower after battery charge
+                ctrl['bat_power']   = bat_power                    
 
             else:                                                                                            # PV provides insufficient power
                 if ctrl['soc'] > ctrl['min_soc'] and not ctrl['inhibitDischarge']:                           # battery can serve excess power needed  ---- add: only if battery discharging enabled
@@ -308,8 +335,13 @@ class PVServer:
             axes[0][1].legend(loc='best')
             axes[1][1].legend(loc='best')
         
-            summary      = self.ctrlData.sum(axis=0)/60
-            summary      = summary.drop(labels = ['calcSOC', 'soc', 'max_soc', 'min_soc', 'need', 'have', 'bat_forecast', 'I_charge', 'batMinSoc', 'chargeNow', 'fastcharge', 'inhibitDischarge'])
+            summary                  = self.ctrlData.sum(axis=0)/60
+            summary['bat_charge']    = self.ctrlData[self.ctrlData['bat_power']>0]['bat_power'].sum()/60
+            summary['bat_discharge'] = self.ctrlData[self.ctrlData['bat_power']<0]['bat_power'].sum()/60
+
+            keepLabels   = [ label for label in summary.index if label in 
+                             ['ctrl_power', 'dc_power', 'home_consumption', 'grid_power', 'bat_power', 'waste_power', 'bat_charge', 'bat_discharge']]
+            summary      = summary[keepLabels]
             summary.name = self.day
         else:
             summary = None
@@ -324,11 +356,20 @@ class PVServer:
         axes[0][0].set_xlim(datemin, datemax)
 
         fig.autofmt_xdate()                                                              # rotate x-labels, manage space
-        if (not self.storePNG):
+        print('start_soc (evening): ' + str(self.ctrlData['soc'][-1]))
+
+        storePNG = self.config['PVServer'].getboolean('storePNG', False)
+        storeCSV = self.config['PVServer'].getboolean('storeCSV', False)
+
+        if not storePNG:
             plt.show()
-            if hasCtrl: print(summary)
+            if hasCtrl: 
+                print(summary)
         else:
             file = self.config['PVServer'].get('storePath') + '/' + day + '.png'
             plt.savefig(file)
             plt.close(fig=fig)
+        if storeCSV:
+            file = self.config['PVServer'].get('storePath') + '/' + day + '.csv'
+            self.ctrlData.to_csv(file)
         return(summary)
